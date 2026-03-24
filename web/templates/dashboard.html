@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP Build Failure Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #3b82f6;
+    --red: #ef4444; --green: #22c55e; --yellow: #eab308; --purple: #a855f7;
+    --orange: #f97316;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  header h1 { font-size: 24px; font-weight: 700; }
+  header h1 span { color: var(--accent); }
+  .refresh-info { color: var(--muted); font-size: 13px; }
+
+  /* Stats Row */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .stat-card .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; margin-top: 4px; }
+  .stat-card .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .stat-card .value.red { color: var(--red); }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.yellow { color: var(--yellow); }
+  .stat-card .value.accent { color: var(--accent); }
+
+  /* Sections */
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+  .section h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .section h2 .badge { background: var(--accent); color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover { background: rgba(59,130,246,0.05); }
+  .platform-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .platform-jenkins { background: #d97706; color: #fff; }
+  .platform-github { background: #6366f1; color: #fff; }
+  .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .status-failure { background: rgba(239,68,68,0.2); color: var(--red); }
+  .status-success { background: rgba(34,197,94,0.2); color: var(--green); }
+  .status-unknown { background: rgba(148,163,184,0.2); color: var(--muted); }
+  .category-badge { background: rgba(168,85,247,0.2); color: var(--purple); padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Filters */
+  .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filters select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+
+  /* Charts row */
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .chart-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .chart-container h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  .chart-wrapper { position: relative; max-height: 300px; display: flex; justify-content: center; }
+
+  /* MTTR Panel */
+  .mttr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .mttr-card { background: var(--bg); border-radius: 8px; padding: 16px; text-align: center; }
+  .mttr-card .mttr-label { color: var(--muted); font-size: 12px; }
+  .mttr-card .mttr-value { font-size: 24px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+  .mttr-breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .mttr-breakdown h3 { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+  .mttr-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+    .mttr-grid { grid-template-columns: 1fr; }
+    .mttr-breakdown { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span>MCP</span> Build Failure Dashboard</h1>
+    <div class="refresh-info">Auto-refresh: <span id="countdown">30</span>s</div>
+  </header>
+
+  <!-- Stats Row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">Total Failures</div>
+      <div class="value red" id="totalFailures">0</div>
+      <div class="sub"><span id="jenkinsCount">0</span> Jenkins &middot; <span id="githubCount">0</span> GitHub</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">MTTR (7-Day Avg)</div>
+      <div class="value yellow" id="mttr7day">--</div>
+      <div class="sub">Mean Time to Resolve</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">MTTR (30-Day Avg)</div>
+      <div class="value accent" id="mttr30day">--</div>
+      <div class="sub">Rolling 30-day window</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Pending Jira</div>
+      <div class="value green" id="pendingJiraCount">0</div>
+      <div class="sub">Open tickets</div>
+    </div>
+  </div>
+
+  <!-- Pipeline Monitor -->
+  <div class="section">
+    <h2>Pipeline Monitor <span class="badge" id="pipelineCount">0</span></h2>
+    <div style="overflow-x:auto;">
+    <table id="pipelinesTable">
+      <thead><tr><th>Pipeline</th><th>Platform</th><th>Repository</th><th>Status</th><th>Last Build</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    </div>
+    <div class="empty" id="pipelinesEmpty">No pipelines monitored yet</div>
+  </div>
+
+  <!-- Pie Charts -->
+  <div class="charts-row">
+    <div class="chart-container">
+      <h2>Failures by Team</h2>
+      <div class="chart-wrapper"><canvas id="teamChart"></canvas></div>
+      <div class="empty" id="teamChartEmpty" style="display:none;">No team data</div>
+    </div>
+    <div class="chart-container">
+      <h2>Failures by Category</h2>
+      <div class="chart-wrapper"><canvas id="categoryChart"></canvas></div>
+      <div class="empty" id="categoryChartEmpty" style="display:none;">No category data</div>
+    </div>
+  </div>
+
+  <!-- MTTR Panel -->
+  <div class="section">
+    <h2>MTTR Breakdown</h2>
+    <div class="mttr-grid">
+      <div class="mttr-card"><div class="mttr-label">Overall Average</div><div class="mttr-value" id="mttrOverall">--</div></div>
+      <div class="mttr-card"><div class="mttr-label">Resolved</div><div class="mttr-value" id="mttrResolved">0</div></div>
+      <div class="mttr-card"><div class="mttr-label">Unresolved</div><div class="mttr-value" id="mttrUnresolved">0</div></div>
+    </div>
+    <div class="mttr-breakdown">
+      <div><h3>By Team</h3><div id="mttrByTeam"></div></div>
+      <div><h3>By Category</h3><div id="mttrByCategory"></div></div>
+    </div>
+  </div>
+
+  <!-- Failures Table -->
+  <div class="section">
+    <h2>Recent Failures <span class="badge" id="failureCount">0</span></h2>
+    <div class="filters">
+      <select id="filterPlatform"><option value="">All Platforms</option><option value="jenkins">Jenkins</option><option value="github">GitHub</option></select>
+      <select id="filterTeam"><option value="">All Teams</option></select>
+      <select id="filterCategory"><option value="">All Categories</option></select>
+    </div>
+    <div style="overflow-x:auto;">
+    <table id="failuresTable">
+      <thead><tr><th>Build</th><th>Platform</th><th>Category</th><th>Error Reason</th><th>Developer</th><th>Team</th><th>Time to Fix</th><th>Jira</th><th>Date</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    </div>
+    <div class="empty" id="failuresEmpty">No failures recorded yet</div>
+  </div>
+
+  <!-- Pending Jira Tickets -->
+  <div class="section">
+    <h2>Pending Jira Tickets <span class="badge" id="jiraCount">0</span></h2>
+    <div style="overflow-x:auto;">
+    <table id="jiraTable">
+      <thead><tr><th>Ticket</th><th>Summary</th><th>Status</th><th>Assignee</th><th>Created</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    </div>
+    <div class="empty" id="jiraEmpty">No pending Jira tickets</div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#3b82f6','#ef4444','#22c55e','#eab308','#a855f7','#f97316','#06b6d4','#ec4899','#14b8a6','#f43f5e'];
+let teamChart, categoryChart;
+
+function formatDuration(seconds) {
+  if (!seconds || seconds === 0) return '--';
+  if (seconds < 60) return Math.round(seconds) + 's';
+  if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+  if (seconds < 86400) return (seconds / 3600).toFixed(1) + 'h';
+  return (seconds / 86400).toFixed(1) + 'd';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '--';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function platformBadge(p) {
+  return '<span class="platform-badge platform-' + p + '">' + p + '</span>';
+}
+
+function statusBadge(s) {
+  const cls = s === 'failure' ? 'status-failure' : s === 'success' ? 'status-success' : 'status-unknown';
+  return '<span class="status-badge ' + cls + '">' + s + '</span>';
+}
+
+function renderDoughnut(canvas, emptyEl, labels, values) {
+  const ctx = canvas.getContext('2d');
+  if (labels.length === 0) {
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return null;
+  }
+  canvas.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  const config = {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: COLORS.slice(0, labels.length),
+        borderColor: '#1e293b',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: {size: 12} } }
+      }
+    }
+  };
+  return new Chart(ctx, config);
+}
+
+function updateCharts(data) {
+  const teamLabels = Object.keys(data.teamDistribution || {});
+  const teamValues = teamLabels.map(k => data.teamDistribution[k]);
+  const catLabels = Object.keys(data.categoryDistribution || {});
+  const catValues = catLabels.map(k => data.categoryDistribution[k]);
+
+  if (teamChart) teamChart.destroy();
+  if (categoryChart) categoryChart.destroy();
+  teamChart = renderDoughnut(document.getElementById('teamChart'), document.getElementById('teamChartEmpty'), teamLabels, teamValues);
+  categoryChart = renderDoughnut(document.getElementById('categoryChart'), document.getElementById('categoryChartEmpty'), catLabels, catValues);
+}
+
+function updateMTTR(mttr) {
+  document.getElementById('mttr7day').textContent = formatDuration(mttr.avg7DaySeconds);
+  document.getElementById('mttr30day').textContent = formatDuration(mttr.avg30DaySeconds);
+  document.getElementById('mttrOverall').textContent = formatDuration(mttr.overallAvgSeconds);
+  document.getElementById('mttrResolved').textContent = mttr.totalResolved || 0;
+  document.getElementById('mttrUnresolved').textContent = mttr.totalUnresolved || 0;
+
+  const byTeam = document.getElementById('mttrByTeam');
+  byTeam.innerHTML = '';
+  for (const [team, secs] of Object.entries(mttr.byTeam || {})) {
+    byTeam.innerHTML += '<div class="mttr-item"><span>' + team + '</span><span>' + formatDuration(secs) + '</span></div>';
+  }
+  if (!Object.keys(mttr.byTeam || {}).length) byTeam.innerHTML = '<div class="mttr-item" style="color:var(--muted)">No data</div>';
+
+  const byCat = document.getElementById('mttrByCategory');
+  byCat.innerHTML = '';
+  for (const [cat, secs] of Object.entries(mttr.byCategory || {})) {
+    byCat.innerHTML += '<div class="mttr-item"><span>' + cat + '</span><span>' + formatDuration(secs) + '</span></div>';
+  }
+  if (!Object.keys(mttr.byCategory || {}).length) byCat.innerHTML = '<div class="mttr-item" style="color:var(--muted)">No data</div>';
+}
+
+function updatePipelines(pipelines) {
+  document.getElementById('pipelineCount').textContent = pipelines.length;
+  const tbody = document.querySelector('#pipelinesTable tbody');
+  const empty = document.getElementById('pipelinesEmpty');
+  if (!pipelines.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = pipelines.map(p =>
+    '<tr><td><strong>' + p.pipelineName + '</strong></td><td>' + platformBadge(p.platform) +
+    '</td><td>' + (p.repository || '--') + '</td><td>' + statusBadge(p.lastStatus) +
+    '</td><td>' + formatDate(p.lastBuildAt) + '</td></tr>'
+  ).join('');
+}
+
+function updateFailures(failures) {
+  document.getElementById('failureCount').textContent = failures.length;
+  const tbody = document.querySelector('#failuresTable tbody');
+  const empty = document.getElementById('failuresEmpty');
+  if (!failures.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = failures.map(f => {
+    const buildLink = f.buildUrl ? '<a href="' + f.buildUrl + '" target="_blank">' + f.buildIdentifier + '</a>' : f.buildIdentifier;
+    const jira = f.jiraTicketKey ? '<a href="' + f.jiraTicketUrl + '" target="_blank">' + f.jiraTicketKey + '</a>' : '--';
+    const ttf = f.mttrSeconds ? formatDuration(f.mttrSeconds) : '<span style="color:var(--red)">Open</span>';
+    return '<tr><td>' + buildLink + '</td><td>' + platformBadge(f.platform) +
+      '</td><td><span class="category-badge">' + (f.category || '--') + '</span></td><td title="' + (f.rootCauseSummary || '').replace(/"/g,'&quot;') + '">' +
+      truncate(f.rootCauseSummary, 60) + '</td><td>' + (f.developer || '--') +
+      '</td><td>' + (f.responsibleTeam || '--') + '</td><td>' + ttf +
+      '</td><td>' + jira + '</td><td>' + formatDate(f.failedAt) + '</td></tr>';
+  }).join('');
+}
+
+function updateJira(tickets) {
+  document.getElementById('jiraCount').textContent = tickets.length;
+  document.getElementById('pendingJiraCount').textContent = tickets.length;
+  const tbody = document.querySelector('#jiraTable tbody');
+  const empty = document.getElementById('jiraEmpty');
+  if (!tickets.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = tickets.map(t =>
+    '<tr><td><a href="' + t.ticketUrl + '" target="_blank">' + t.ticketKey + '</a></td><td>' +
+    truncate(t.summary, 60) + '</td><td>' + t.status + '</td><td>' + (t.assignee || '--') +
+    '</td><td>' + formatDate(t.createdAt) + '</td></tr>'
+  ).join('');
+}
+
+function truncate(s, max) {
+  if (!s) return '--';
+  return s.length > max ? s.substring(0, max) + '...' : s;
+}
+
+function populateFilterOptions(data) {
+  const teams = new Set();
+  const cats = new Set();
+  (data.failures || []).forEach(f => {
+    if (f.responsibleTeam) teams.add(f.responsibleTeam);
+    if (f.category) cats.add(f.category);
+  });
+
+  const teamSel = document.getElementById('filterTeam');
+  const catSel = document.getElementById('filterCategory');
+  const currentTeam = teamSel.value;
+  const currentCat = catSel.value;
+
+  teamSel.innerHTML = '<option value="">All Teams</option>';
+  [...teams].sort().forEach(t => { teamSel.innerHTML += '<option value="' + t + '">' + t + '</option>'; });
+  teamSel.value = currentTeam;
+
+  catSel.innerHTML = '<option value="">All Categories</option>';
+  [...cats].sort().forEach(c => { catSel.innerHTML += '<option value="' + c + '">' + c + '</option>'; });
+  catSel.value = currentCat;
+}
+
+function applyFilters(failures) {
+  const platform = document.getElementById('filterPlatform').value;
+  const team = document.getElementById('filterTeam').value;
+  const category = document.getElementById('filterCategory').value;
+  return failures.filter(f => {
+    if (platform && f.platform !== platform) return false;
+    if (team && f.responsibleTeam !== team) return false;
+    if (category && f.category !== category) return false;
+    return true;
+  });
+}
+
+let allData = null;
+
+async function fetchDashboard() {
+  try {
+    const resp = await fetch('/api/dashboard');
+    allData = await resp.json();
+
+    document.getElementById('totalFailures').textContent = allData.totalFailures || 0;
+    document.getElementById('jenkinsCount').textContent = allData.jenkinsCount || 0;
+    document.getElementById('githubCount').textContent = allData.githubCount || 0;
+
+    updatePipelines(allData.pipelines || []);
+    updateFailures(applyFilters(allData.failures || []));
+    updateCharts(allData);
+    updateMTTR(allData.mttrStats || {});
+    updateJira(allData.pendingJira || []);
+    populateFilterOptions(allData);
+  } catch (e) {
+    console.error('Failed to fetch dashboard:', e);
+  }
+}
+
+// Filter change handlers
+['filterPlatform','filterTeam','filterCategory'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (allData) updateFailures(applyFilters(allData.failures || []));
+  });
+});
+
+// Auto-refresh countdown
+let countdown = 30;
+setInterval(() => {
+  countdown--;
+  document.getElementById('countdown').textContent = countdown;
+  if (countdown <= 0) { countdown = 30; fetchDashboard(); }
+}, 1000);
+
+// Initial load
+fetchDashboard();
+</script>
+</body>
+</html>
